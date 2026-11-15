@@ -518,12 +518,24 @@ function renderMap() {
   if (!state.leafletMap) {
     const center = state.filtered[0] ? [state.filtered[0].lat, state.filtered[0].lon] : [48.8566, 2.3522];
     state.leafletMap = L.map(container).setView(center, 11);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
+
+    const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors',
     }).addTo(state.leafletMap);
+
+    const ignLayer = L.tileLayer(
+      'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+      {
+        maxZoom: 18,
+        attribution: '&copy; IGN Géoplateforme',
+      }
+    );
+
+    L.control.layers({ 'OpenStreetMap (sans clé)': osmLayer, 'Plan IGN France (sans clé)': ignLayer }).addTo(state.leafletMap);
   }
 
-  setTimeout(() => state.leafletMap.invalidateSize(), 120);
+  setTimeout(() => state.leafletMap.invalidateSize(), 140);
 
   state.leafletMarkers.forEach((m) => m.remove());
   state.leafletMarkers = [];
@@ -541,14 +553,17 @@ function renderMap() {
       fillOpacity: 0.9,
     }).addTo(state.leafletMap);
 
-    marker.bindPopup(`
-      <div style="font-family:Plus Jakarta Sans,sans-serif;min-width:200px">
-        <strong>${escapeHtml(c.name)}</strong><br/>
-        <span style="font-size:12px;color:#475569">${escapeHtml(c.oeth.bracket_label)}</span><br/>
-        <strong style="color:#059669">Économie OETH : ${formatEuro(c.oeth.saving_per_rqth_hire)}/an</strong><br/>
-        <span>Score : ${c.composite_score}/100</span>
-      </div>
-    `);
+    const popupEl = document.createElement('div');
+    popupEl.style.cssText = 'font-family:Plus Jakarta Sans,sans-serif;min-width:210px';
+    popupEl.innerHTML = `
+      <strong>${escapeHtml(c.name)}</strong><br/>
+      <span style="font-size:12px;color:#475569">${escapeHtml(c.oeth.bracket_label)}</span><br/>
+      <strong style="color:#059669">Économie OETH : ${formatEuro(c.oeth.saving_per_rqth_hire)}/an</strong><br/>
+      <span>Score : ${c.composite_score}/100</span><br/>
+      <button type="button" style="margin-top:8px;padding:5px 10px;border:none;border-radius:7px;background:#6366F1;color:#fff;font-weight:600;cursor:pointer;">Détails & Pitch RQTH</button>
+    `;
+    popupEl.querySelector('button').addEventListener('click', () => openCompanyDrawer(c.siren));
+    marker.bindPopup(popupEl);
     state.leafletMarkers.push(marker);
     bounds.push([c.lat, c.lon]);
   });
