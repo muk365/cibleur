@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cibleur Prédictif — Marché Caché × Entreprises OETH (20+ salariés)</title>
+  <meta name="description" content="Croisement prédictif La Bonne Boîte (France Travail) × API Recherche d'entreprises (SIRENE 20+ salariés) pour cibler les entreprises à fort potentiel d'embauche et d'intérêt OETH / RQTH." />
+
+  <!-- Custom Fonts: Space Grotesk (Display), Plus Jakarta Sans (UI), JetBrains Mono (Codes & KPIs) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet for Interactive Map View -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="" defer></script>
+
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <!-- Global SVG Gradient Definitions for Custom Icons & Score Rings -->
+  <svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true">
+    <defs>
+      <linearGradient id="grad-cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#22D3EE" />
+        <stop offset="100%" stop-color="#10B981" />
+      </linearGradient>
+      <linearGradient id="grad-aurora" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#22D3EE" />
+        <stop offset="50%" stop-color="#8B5CF6" />
+        <stop offset="100%" stop-color="#F472B6" />
+      </linearGradient>
+      <linearGradient id="grad-amber" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#FBBF24" />
+        <stop offset="100%" stop-color="#F97316" />
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <!-- Ambient Aurora Background -->
+  <div class="aurora-bg" aria-hidden="true">
+    <div class="aurora-orb orb-1"></div>
+    <div class="aurora-orb orb-2"></div>
+    <div class="aurora-orb orb-3"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Top Navigation Bar -->
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark" id="brand-icon"></div>
+        <div>
+          <div class="brand-title">
+            Cibleur <span class="gradient-text">OETH×LBB</span>
+          </div>
+          <div class="brand-sub">Marché Caché • Seuil 20+ salariés • Vérif Web Live</div>
+        </div>
+      </div>
+
+      <nav class="topbar-actions" aria-label="Navigation principale">
+        <button type="button" class="pill-btn mode-pill" id="btn-engine-status" title="Configurer les APIs & Diagnostics">
+          <span class="pulse-dot" id="engine-dot"></span>
+          <span id="engine-label">Mode SIRENE Live</span>
+        </button>
+
+        <button type="button" class="pill-btn" id="btn-open-pipeline">
+          <span id="icon-kanban"></span>
+          <span>Mes Cibles</span>
+          <span class="badge-count" id="pipeline-count">0</span>
+        </button>
+
+        <button type="button" class="pill-btn" id="btn-open-simulator">
+          <span id="icon-euro-nav"></span>
+          <span>Simulateur OETH</span>
+        </button>
+
+        <button type="button" class="icon-btn" id="btn-open-settings" title="Paramètres API France Travail & Diagnostics" aria-label="Paramètres API">
+          <span id="icon-sliders"></span>
+        </button>
+
+        <button type="button" class="icon-btn" id="btn-theme-toggle" title="Basculer thème clair / sombre" aria-label="Changer de thème">
+          <span id="icon-theme"></span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Workspace -->
+  <main class="container">
+    <!-- Hero Search & Targeting Command Center -->
+    <section class="hero-card">
+      <div class="hero-head">
+        <div class="hero-badge">
+          <span id="icon-sparkle-hero"></span>
+          <span>Croisement Prédictif • France Travail La Bonne Boîte × Base SIRENE</span>
+        </div>
+        <h1>Détectez les entreprises qui <span class="gradient-text">recrutent bientôt</span> et gagnent à embaucher <span class="gradient-text-warm">RQTH</span></h1>
+        <p class="hero-desc">
+          Identifiez les employeurs du marché caché soumis à l'obligation OETH (<strong>20 salariés et plus</strong>), enrichis avec dirigeants, santé financière, labels RSE et vérification en direct d'un site web actif.
+        </p>
+      </div>
+
+      <!-- Search Form -->
+      <form id="search-form" class="search-grid" autocomplete="off">
+        <!-- ROME Input -->
+        <div class="field-group field-rome">
+          <label for="input-rome">Code ROME ciblé</label>
+          <div class="input-wrap">
+            <span class="input-prefix" id="icon-briefcase"></span>
+            <input type="text" id="input-rome" value="M1805" maxlength="5" placeholder="ex: M1805" required />
+            <span class="rome-badge-inline" id="rome-sector-pill">Tech</span>
+          </div>
+          <div class="field-hint" id="rome-label-hint">Études et développement informatique</div>
+        </div>
+
+        <!-- City Autocomplete -->
+        <div class="field-group field-city">
+          <label for="input-city">Bassin d'emploi / Ville</label>
+          <div class="input-wrap">
+            <span class="input-prefix" id="icon-pin"></span>
+            <input type="text" id="input-city" value="Paris" placeholder="Ville ou code postal..." required />
+          </div>
+          <div class="autocomplete-dropdown" id="city-dropdown" hidden></div>
+          <div class="field-hint" id="city-coords-hint">Dép. 75 • 48.8566, 2.3522</div>
+        </div>
+
+        <!-- Radius -->
+        <div class="field-group">
+          <label for="select-radius">Rayon</label>
+          <select id="select-radius">
+            <option value="10">10 km</option>
+            <option value="25" selected>25 km</option>
+            <option value="50">50 km</option>
+            <option value="80">80 km</option>
+          </select>
+        </div>
+
+        <!-- Min Headcount OETH -->
+        <div class="field-group">
+          <label for="select-min-size">Seuil OETH</label>
+          <select id="select-min-size">
+            <option value="20" selected>20+ salariés (Tous OETH)</option>
+            <option value="50">50+ salariés (Egapro / CSE)</option>
+            <option value="250">250+ salariés (Paliers majorés)</option>
+          </select>
+        </div>
+
+        <!-- Data Engine Mode -->
+        <div class="field-group">
+          <label for="select-mode">Source de données</label>
+          <select id="select-mode">
+            <option value="auto" selected>Auto (LBB + SIRENE Live)</option>
+            <option value="sirene">SIRENE Live + Scoring Prédictif</option>
+            <option value="demo">Démo LBB × SIRENE (instantané)</option>
+          </select>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="field-action">
+          <button type="submit" class="btn-primary" id="btn-run-search">
+            <span id="icon-radar-btn"></span>
+            <span>Lancer le ciblage</span>
+          </button>
+        </div>
+      </form>
+
+      <!-- Quick Presets & Live Toggles -->
+      <div class="presets-bar">
+        <div class="preset-chips" id="rome-presets"></div>
+        <div class="toggles-row">
+          <label class="switch-chip">
+            <input type="checkbox" id="chk-active-site" checked />
+            <span>Site web actif vérifié</span>
+          </label>
+          <label class="switch-chip">
+            <input type="checkbox" id="chk-only-rse" />
+            <span>Signaux RSE / ESS / Mission uniquement</span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Live Pipeline Status Banner (shown when fallback or active pipeline info) -->
+    <div class="pipeline-banner" id="pipeline-banner" hidden></div>
+
+    <!-- KPI Summary Strip -->
+    <section class="kpi-strip" id="kpi-strip">
+      <article class="kpi-card kpi-cyan">
+        <div class="kpi-icon" id="kpi-icon-1"></div>
+        <div class="kpi-body">
+          <div class="kpi-label">Cibles qualifiées 20+</div>
+          <div class="kpi-value" id="kpi-count">—</div>
+          <div class="kpi-sub" id="kpi-candidates">En attente de scan</div>
+        </div>
+      </article>
+      <article class="kpi-card kpi-violet">
+        <div class="kpi-icon" id="kpi-icon-2"></div>
+        <div class="kpi-body">
+          <div class="kpi-label">Score moyen Marché Caché</div>
+          <div class="kpi-value" id="kpi-avg-score">—</div>
+          <div class="kpi-sub">Pondération LBB + OETH + RSE</div>
+        </div>
+      </article>
+      <article class="kpi-card kpi-amber">
+        <div class="kpi-icon" id="kpi-icon-3"></div>
+        <div class="kpi-body">
+          <div class="kpi-label">Économie OETH moyenne / embauche</div>
+          <div class="kpi-value" id="kpi-avg-saving">—</div>
+          <div class="kpi-sub">Contribution AGEFIPH évitée / an</div>
+        </div>
+      </article>
+      <article class="kpi-card kpi-emerald">
+        <div class="kpi-icon" id="kpi-icon-4"></div>
+        <div class="kpi-body">
+          <div class="kpi-label">Sites web actifs vérifiés</div>
+          <div class="kpi-value" id="kpi-verified-sites">—</div>
+          <div class="kpi-sub" id="kpi-elapsed">Latence pipeline —</div>
+        </div>
+      </article>
+    </section>
+
+    <!-- Results Toolbar -->
+    <section class="toolbar">
+      <div class="toolbar-left">
+        <div class="view-tabs" role="tablist">
+          <button type="button" class="tab-btn active" data-view="cards" id="tab-cards">
+            <span id="icon-tab-cards"></span>
+            <span>Cartes</span>
+          </button>
+          <button type="button" class="tab-btn" data-view="table" id="tab-table">
+            <span id="icon-tab-table"></span>
+            <span>Tableau</span>
+          </button>
+          <button type="button" class="tab-btn" data-view="map" id="tab-map">
+            <span id="icon-tab-map"></span>
+            <span>Carte géo</span>
+          </button>
+        </div>
+
+        <div class="filter-search">
+          <input type="search" id="input-local-filter" placeholder="Filtrer par nom, SIREN, dirigeant, ville..." />
+        </div>
+      </div>
+
+      <div class="toolbar-right">
+        <select id="select-sort" aria-label="Trier les résultats">
+          <option value="composite">Tri : Score Composite</option>
+          <option value="saving">Tri : Économie OETH (€)</option>
+          <option value="hiring">Tri : Potentiel embauche</option>
+          <option value="headcount">Tri : Taille d'effectif</option>
+        </select>
+
+        <button type="button" class="btn-ghost" id="btn-export-csv" title="Exporter en CSV (Excel)">
+          <span id="icon-download-csv"></span>
+          <span>CSV</span>
+        </button>
+        <button type="button" class="btn-ghost" id="btn-export-json" title="Exporter en JSON">
+          <span>JSON</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Results Views -->
+    <section id="view-cards" class="cards-grid"></section>
+
+    <section id="view-table" class="table-wrap" hidden>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Entreprise & SIREN</th>
+            <th>Effectif OETH</th>
+            <th>Économie / RQTH</th>
+            <th>Potentiel</th>
+            <th>Score</th>
+            <th>Site Web</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </section>
+
+    <section id="view-map" class="map-wrap" hidden>
+      <div id="leaflet-map"></div>
+    </section>
+  </main>
+
+  <!-- Slide-over Drawer: Company Deep Dive + OETH Simulator + Pitch Generator -->
+  <aside class="drawer-backdrop" id="drawer-backdrop" hidden>
+    <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <div class="drawer-header">
+        <div>
+          <span class="drawer-eyebrow" id="drawer-eyebrow">FICHE CIBLE OETH</span>
+          <h2 id="drawer-title">Entreprise</h2>
+        </div>
+        <button type="button" class="icon-btn" id="btn-close-drawer" aria-label="Fermer">
+          <span id="icon-close-drawer"></span>
+        </button>
+      </div>
+      <div class="drawer-body" id="drawer-body"></div>
+    </div>
+  </aside>
+
+  <!-- Modal: Pipeline CRM (Mes Cibles) / Standalone OETH Simulator / API Settings -->
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <h2 id="modal-title">Modal</h2>
+        <button type="button" class="icon-btn" id="btn-close-modal" aria-label="Fermer">
+          <span id="icon-close-modal"></span>
+        </button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Toast Stack -->
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

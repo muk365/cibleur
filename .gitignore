@@ -1,0 +1,11 @@
+# Secrets & local runtime cache
+data/credentials.json
+data/cache/
+.env
+.env.*
+
+# Netlify / Node / OS
+.netlify/
+node_modules/
+.DS_Store
+Thumbs.db
