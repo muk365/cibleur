@@ -4,6 +4,7 @@ import {
   jsonResponse,
   computeOethMetrics,
   getFtCredentials,
+  requestFtToken,
   fetchWithTiming,
   normalizeSireneCompany,
   verifyWebsitesBatch,
@@ -170,25 +171,9 @@ export async function handler(event) {
   let usedLbb = false;
 
   if ((mode === 'auto' || mode === 'lbb') && hasFtCreds) {
-    const tokenRes = await fetchWithTiming(
-      'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-        body: new URLSearchParams({
-          grant_type: 'client_credentials',
-          client_id: creds.clientId,
-          client_secret: creds.clientSecret,
-          scope: 'api_labonneboitev2',
-        }).toString(),
-      },
-      7000
-    );
+    const token = await requestFtToken(creds.clientId, creds.clientSecret);
 
-    let tokenJson = {};
-    try { tokenJson = JSON.parse(tokenRes.body || '{}'); } catch {}
-
-    if (tokenRes.status === 200 && tokenJson.access_token) {
+    if (token.ok && token.access_token) {
       const lbbUrl = `https://api.francetravail.io/partenaire/labonneboite/v2/recherche?${new URLSearchParams({
         rome,
         latitude: String(lat),
@@ -199,7 +184,7 @@ export async function handler(event) {
 
       const lbbRes = await fetchWithTiming(
         lbbUrl,
-        { headers: { Authorization: `Bearer ${tokenJson.access_token}`, Accept: 'application/json' } },
+        { headers: { Authorization: `Bearer ${token.access_token}`, Accept: 'application/json' } },
         8000
       );
 
@@ -226,8 +211,7 @@ export async function handler(event) {
         meta.fallback_reason = `API La Bonne Boîte v2 HTTP ${lbbRes.status} — bascule automatique sur SIRENE Live.`;
       }
     } else {
-      const errMsg = tokenJson.error_description || tokenJson.error || `HTTP ${tokenRes.status}`;
-      meta.fallback_reason = `OAuth2 France Travail (${errMsg}) — bascule automatique sur SIRENE Live.`;
+      meta.fallback_reason = `OAuth2 France Travail (${token.error || 'HTTP ' + token.status}) — bascule automatique sur SIRENE Live.`;
     }
   }
 

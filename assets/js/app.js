@@ -12,15 +12,21 @@ const STORAGE_PIPELINE = 'cibleur_oeth_pipeline_v1';
 const STORAGE_THEME = 'cibleur_oeth_theme_v1';
 const STORAGE_FT_SESSION = 'cibleur_ft_session_creds';
 
-function getFtAuthHeaders() {
+function getSavedFtCreds() {
   try {
-    const raw = sessionStorage.getItem(STORAGE_FT_SESSION);
-    if (!raw) return {};
+    const raw = localStorage.getItem(STORAGE_FT_SESSION) || sessionStorage.getItem(STORAGE_FT_SESSION);
+    if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed.id && parsed.secret) {
-      return { 'X-FT-Client-Id': parsed.id, 'X-FT-Client-Secret': parsed.secret };
-    }
+    if (parsed?.id && parsed?.secret) return parsed;
   } catch {}
+  return null;
+}
+
+function getFtAuthHeaders() {
+  const creds = getSavedFtCreds();
+  if (creds) {
+    return { 'X-FT-Client-Id': creds.id, 'X-FT-Client-Secret': creds.secret };
+  }
   return {};
 }
 
@@ -804,7 +810,7 @@ function openPipelineModal() {
   });
 }
 
-async function openSettingsModal() {
+async function openSettingsModal(feedback = null) {
   openModal('Configuration APIs & Diagnostics Live', '<p>Vérification de la connectivité aux APIs publiques françaises...</p>');
   try {
     const res = await fetch('api/settings.php?check=1', { headers: getFtAuthHeaders() });
@@ -815,10 +821,19 @@ async function openSettingsModal() {
       `<span style="color:${ok ? 'var(--accent-emerald)' : 'var(--accent-amber)'};font-weight:700">${ok ? 'Connecté' : 'Non actif'}</span> (${ms || 0} ms) ${extra}`;
 
     const storageHint = isNetlify
-      ? 'Sur Netlify, configurez <code>FT_CLIENT_ID</code> et <code>FT_CLIENT_SECRET</code> dans <em>Site configuration → Environment variables</em>, ou testez-les ici pour la session en cours.'
+      ? 'Sur Netlify, configurez <code>FT_CLIENT_ID</code> et <code>FT_CLIENT_SECRET</code> dans <em>Site configuration → Environment variables</em>, ou enregistrez vos clés ici (mémorisées dans votre navigateur).'
       : 'Les identifiants sont stockés côté serveur uniquement dans <code>data/credentials.json</code>. Sans clés France Travail, l\'application exploite l\'API SIRENE en direct avec scoring prédictif.';
 
+    const feedbackHtml =
+      feedback && typeof feedback.text === 'string'
+        ? `<div style="padding:10px 12px;border-radius:10px;font-size:0.84rem;border:1px solid ${feedback.ok ? 'rgba(16,185,129,0.45)' : 'rgba(251,113,133,0.55)'};background:${feedback.ok ? 'rgba(16,185,129,0.12)' : 'rgba(251,113,133,0.12)'};color:${feedback.ok ? 'var(--accent-emerald)' : 'var(--accent-coral)'};">
+             <strong>${escapeHtml(feedback.text)}</strong>
+           </div>`
+        : '';
+
+    const savedLocal = getSavedFtCreds();
     document.getElementById('modal-body').innerHTML = `
+      ${feedbackHtml}
       <div class="drawer-section">
         <h3>État des APIs publiques</h3>
         <div style="font-size:0.86rem;display:flex;flex-direction:column;gap:6px;">
@@ -832,8 +847,8 @@ async function openSettingsModal() {
         <p style="margin:0;font-size:0.82rem;color:var(--text-secondary);">
           ${storageHint}
         </p>
-        <div class="field-group"><label>Client ID ${data.masked_client_id ? `(actuel: ${escapeHtml(data.masked_client_id)})` : ''}</label><input type="text" id="ft-client-id" placeholder="PAR_..."/></div>
-        <div class="field-group"><label>Client Secret</label><input type="password" id="ft-client-secret" placeholder="••••••••••••"/></div>
+        <div class="field-group"><label>Client ID ${data.masked_client_id ? `(actuel: ${escapeHtml(data.masked_client_id)})` : ''}</label><input type="text" id="ft-client-id" value="${escapeHtml(savedLocal?.id || '')}" placeholder="PAR_..."/></div>
+        <div class="field-group"><label>Client Secret</label><input type="password" id="ft-client-secret" value="${escapeHtml(savedLocal?.secret || '')}" placeholder="••••••••••••"/></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button type="button" class="btn-primary" id="btn-save-ft" style="height:40px;">Tester & Enregistrer</button>
           ${data.has_ft_credentials ? '<button type="button" class="btn-ghost" id="btn-clear-ft">Effacer les clés</button>' : ''}
@@ -844,8 +859,12 @@ async function openSettingsModal() {
     document.getElementById('btn-save-ft').addEventListener('click', async () => {
       const cid = document.getElementById('ft-client-id').value.trim();
       const sec = document.getElementById('ft-client-secret').value.trim();
+      if ((!cid || !sec) && !data.has_ft_credentials) {
+        showToast('Veuillez renseigner le Client ID et le Client Secret.', true);
+        return;
+      }
       if (isNetlify && cid && sec) {
-        sessionStorage.setItem(STORAGE_FT_SESSION, JSON.stringify({ id: cid, secret: sec }));
+        localStorage.setItem(STORAGE_FT_SESSION, JSON.stringify({ id: cid, secret: sec }));
       }
       const saveRes = await fetch('api/settings.php', {
         method: 'POST',
@@ -853,14 +872,17 @@ async function openSettingsModal() {
         body: JSON.stringify({ action: 'save', ft_client_id: cid, ft_client_secret: sec }),
       });
       const out = await saveRes.json();
-      showToast(out.message || out.error, !out.ok || !out.oauth_verified);
+      const isOk = Boolean(out.ok && out.oauth_verified);
+      const msg = out.message || out.error || 'Réponse inconnue';
+      showToast(msg, !isOk);
       fetchSettingsStatus();
-      openSettingsModal();
+      openSettingsModal({ ok: isOk, text: msg });
     });
 
     const clearBtn = document.getElementById('btn-clear-ft');
     if (clearBtn) {
       clearBtn.addEventListener('click', async () => {
+        localStorage.removeItem(STORAGE_FT_SESSION);
         sessionStorage.removeItem(STORAGE_FT_SESSION);
         await fetch('api/settings.php', {
           method: 'POST',
@@ -869,7 +891,7 @@ async function openSettingsModal() {
         });
         showToast('Identifiants France Travail supprimés');
         fetchSettingsStatus();
-        openSettingsModal();
+        openSettingsModal({ ok: true, text: 'Identifiants supprimés.' });
       });
     }
   } catch (err) {
@@ -955,8 +977,8 @@ function bindEvents() {
 
   document.getElementById('btn-open-simulator').addEventListener('click', openSimulatorModal);
   document.getElementById('btn-open-pipeline').addEventListener('click', openPipelineModal);
-  document.getElementById('btn-open-settings').addEventListener('click', openSettingsModal);
-  document.getElementById('btn-engine-status').addEventListener('click', openSettingsModal);
+  document.getElementById('btn-open-settings').addEventListener('click', () => openSettingsModal());
+  document.getElementById('btn-engine-status').addEventListener('click', () => openSettingsModal());
 
   document.getElementById('btn-export-csv').addEventListener('click', exportCsv);
   document.getElementById('btn-export-json').addEventListener('click', exportJson);

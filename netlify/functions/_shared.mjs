@@ -79,6 +79,61 @@ export function getFtCredentials(event) {
   return { clientId: '', clientSecret: '', source: 'none' };
 }
 
+export function parseEventJsonBody(event) {
+  if (!event?.body) return {};
+  const raw = event.isBase64Encoded
+    ? Buffer.from(event.body, 'base64').toString('utf8')
+    : String(event.body);
+  return JSON.parse(raw || '{}');
+}
+
+export async function requestFtToken(clientId, clientSecret) {
+  const url = 'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire';
+  const scopesToTry = [`api_labonneboitev2`, `application_${clientId} api_labonneboitev2`];
+  let lastRes = null;
+  let lastJson = {};
+
+  for (const scope of scopesToTry) {
+    const body = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: clientId,
+      client_secret: clientSecret,
+      scope,
+    }).toString();
+
+    const res = await fetchWithTiming(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+        body,
+      },
+      8000
+    );
+
+    let json = {};
+    try { json = JSON.parse(res.body || '{}'); } catch {}
+    lastRes = res;
+    lastJson = json;
+
+    if (res.status === 200 && json.access_token) {
+      return { ok: true, access_token: json.access_token, scope, status: res.status, latency_ms: res.latency_ms, error: null };
+    }
+    if (json.error !== 'invalid_scope') {
+      break;
+    }
+  }
+
+  return {
+    ok: false,
+    access_token: null,
+    scope: scopesToTry[0],
+    status: lastRes?.status || 0,
+    latency_ms: lastRes?.latency_ms || 0,
+    error: lastJson.error_description || lastJson.error || lastRes?.error || `HTTP ${lastRes?.status || 0}`,
+  };
+}
+
 export async function fetchWithTiming(url, options = {}, timeoutMs = 7000) {
   const start = Date.now();
   try {

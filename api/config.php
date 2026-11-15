@@ -237,3 +237,58 @@ function httpFetch(string $url, array $headers = [], string $method = 'GET', ?st
         'latency_ms' => $latency,
     ];
 }
+
+/**
+ * Request a France Travail OAuth2 access token, trying both standard and application-prefixed scopes.
+ */
+function requestFtToken(string $clientId, string $clientSecret): array
+{
+    $url = 'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire';
+    $scopesToTry = ['api_labonneboitev2', "application_{$clientId} api_labonneboitev2"];
+    $lastRes = null;
+    $lastJson = [];
+
+    foreach ($scopesToTry as $scope) {
+        $res = httpFetch(
+            $url,
+            ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'],
+            'POST',
+            http_build_query([
+                'grant_type' => 'client_credentials',
+                'client_id' => $clientId,
+                'client_secret' => $clientSecret,
+                'scope' => $scope,
+            ]),
+            8
+        );
+        $json = json_decode($res['body'], true);
+        if (!is_array($json)) {
+            $json = [];
+        }
+        $lastRes = $res;
+        $lastJson = $json;
+
+        if ($res['status'] === 200 && !empty($json['access_token'])) {
+            return [
+                'ok' => true,
+                'access_token' => $json['access_token'],
+                'scope' => $scope,
+                'status' => $res['status'],
+                'latency_ms' => $res['latency_ms'],
+                'error' => null,
+            ];
+        }
+        if (($json['error'] ?? '') !== 'invalid_scope') {
+            break;
+        }
+    }
+
+    return [
+        'ok' => false,
+        'access_token' => null,
+        'scope' => $scopesToTry[0],
+        'status' => $lastRes['status'] ?? 0,
+        'latency_ms' => $lastRes['latency_ms'] ?? 0,
+        'error' => $lastJson['error_description'] ?? $lastJson['error'] ?? ($lastRes['error'] ?: ('HTTP ' . ($lastRes['status'] ?? 0))),
+    ];
+}

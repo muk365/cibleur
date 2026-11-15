@@ -1,4 +1,4 @@
-import { jsonResponse, fetchWithTiming, getFtCredentials } from './_shared.mjs';
+import { jsonResponse, fetchWithTiming, getFtCredentials, parseEventJsonBody, requestFtToken } from './_shared.mjs';
 
 export async function handler(event) {
   const method = event.httpMethod || 'GET';
@@ -6,7 +6,7 @@ export async function handler(event) {
   if (method === 'POST') {
     let input = {};
     try {
-      input = JSON.parse(event.body || '{}');
+      input = parseEventJsonBody(event);
     } catch {
       return jsonResponse({ ok: false, error: 'Corps JSON invalide' }, 400);
     }
@@ -20,45 +20,33 @@ export async function handler(event) {
       });
     }
 
-    const clientId = String(input.ft_client_id || '').trim() || (process.env.FT_CLIENT_ID || '').trim();
-    const clientSecret = String(input.ft_client_secret || '').trim() || (process.env.FT_CLIENT_SECRET || '').trim();
+    const existingCreds = getFtCredentials(event);
+    const clientId = String(input.ft_client_id || '').trim() || existingCreds.clientId;
+    const clientSecret = String(input.ft_client_secret || '').trim() || existingCreds.clientSecret;
 
     if (!clientId || !clientSecret) {
-      return jsonResponse({ ok: false, error: 'Client ID et Client Secret sont requis.' }, 400);
+      return jsonResponse({
+        ok: false,
+        runtime: 'netlify',
+        has_ft_credentials: false,
+        error: 'Client ID et Client Secret sont requis.',
+      }, 200);
     }
 
-    const body = new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-      scope: 'api_labonneboitev2',
-    }).toString();
-
-    const tokenRes = await fetchWithTiming(
-      'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-        body,
-      },
-      8000
-    );
-
-    let tokenJson = {};
-    try { tokenJson = JSON.parse(tokenRes.body || '{}'); } catch {}
-    const oauthOk = tokenRes.status === 200 && Boolean(tokenJson.access_token);
+    const token = await requestFtToken(clientId, clientSecret);
 
     return jsonResponse({
       ok: true,
       runtime: 'netlify',
-      oauth_verified: oauthOk,
-      oauth_status: tokenRes.status,
-      oauth_latency_ms: tokenRes.latency_ms,
-      oauth_error: oauthOk ? null : (tokenJson.error_description || tokenJson.error || tokenRes.error || `HTTP ${tokenRes.status}`),
+      oauth_verified: token.ok,
+      oauth_status: token.status,
+      oauth_latency_ms: token.latency_ms,
+      oauth_scope: token.scope,
+      oauth_error: token.error,
       has_ft_credentials: true,
-      message: oauthOk
-        ? 'Connexion OAuth2 France Travail (scope api_labonneboitev2) validée !'
-        : 'Clés mémorisées pour cette session, mais la validation OAuth2 a retourné une erreur (SIRENE Live reste actif).',
+      message: token.ok
+        ? `Connexion OAuth2 France Travail (${token.scope}) validée !`
+        : `Clés mémorisées, mais OAuth2 France Travail a refusé le jeton (${token.error}). SIRENE Live reste actif.`,
     });
   }
 
@@ -82,26 +70,13 @@ export async function handler(event) {
     };
 
     if (hasCreds) {
-      const body = new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: creds.clientId,
-        client_secret: creds.clientSecret,
-        scope: 'api_labonneboitev2',
-      }).toString();
-
-      const ftRes = await fetchWithTiming(
-        'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire',
-        { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body },
-        6000
-      );
-      let ftJson = {};
-      try { ftJson = JSON.parse(ftRes.body || '{}'); } catch {}
+      const token = await requestFtToken(creds.clientId, creds.clientSecret);
       lbbStatus = {
         configured: true,
-        ok: ftRes.status === 200 && Boolean(ftJson.access_token),
-        status: ftRes.status,
-        latency_ms: ftRes.latency_ms,
-        detail: ftRes.status === 200 ? `Token OAuth2 actif (${creds.source})` : (ftJson.error_description || `Erreur auth HTTP ${ftRes.status}`),
+        ok: token.ok,
+        status: token.status,
+        latency_ms: token.latency_ms,
+        detail: token.ok ? `Token OAuth2 actif (${creds.source}, scope ${token.scope})` : (token.error || `Erreur auth HTTP ${token.status}`),
       };
     }
 

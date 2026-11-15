@@ -554,28 +554,22 @@ if ($mode === 'demo') {
 }
 
 $creds = loadCredentials();
+$hdrId = trim((string) ($_SERVER['HTTP_X_FT_CLIENT_ID'] ?? ''));
+$hdrSecret = trim((string) ($_SERVER['HTTP_X_FT_CLIENT_SECRET'] ?? ''));
+if ($hdrId !== '' && $hdrSecret !== '') {
+    $creds['ft_client_id'] = $hdrId;
+    $creds['ft_client_secret'] = $hdrSecret;
+}
 $hasFtCreds = $creds['ft_client_id'] !== '' && $creds['ft_client_secret'] !== '';
 $lbbMatches = [];
 $usedLbb = false;
 
 // Step 1: Try France Travail La Bonne Boîte v2 if credentials are configured and mode allows
 if (($mode === 'auto' || $mode === 'lbb') && $hasFtCreds) {
-    $tokenRes = httpFetch(
-        'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire',
-        ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'],
-        'POST',
-        http_build_query([
-            'grant_type' => 'client_credentials',
-            'client_id' => $creds['ft_client_id'],
-            'client_secret' => $creds['ft_client_secret'],
-            'scope' => 'api_labonneboitev2',
-        ]),
-        7
-    );
-    $tokenJson = json_decode($tokenRes['body'], true);
+    $token = requestFtToken($creds['ft_client_id'], $creds['ft_client_secret']);
 
-    if ($tokenRes['status'] === 200 && !empty($tokenJson['access_token'])) {
-        $accessToken = $tokenJson['access_token'];
+    if ($token['ok'] && !empty($token['access_token'])) {
+        $accessToken = $token['access_token'];
         $lbbUrl = 'https://api.francetravail.io/partenaire/labonneboite/v2/recherche?' . http_build_query([
             'rome' => $rome,
             'latitude' => $lat,
@@ -609,7 +603,7 @@ if (($mode === 'auto' || $mode === 'lbb') && $hasFtCreds) {
             $meta['fallback_reason'] = 'API La Bonne Boîte v2 HTTP ' . $lbbRes['status'] . ' — bascule automatique sur SIRENE Live.';
         }
     } else {
-        $errMsg = $tokenJson['error_description'] ?? $tokenJson['error'] ?? ('HTTP ' . $tokenRes['status']);
+        $errMsg = $token['error'] ?? ('HTTP ' . $token['status']);
         $meta['fallback_reason'] = "OAuth2 France Travail ({$errMsg}) — bascule automatique sur SIRENE Live.";
     }
 }
