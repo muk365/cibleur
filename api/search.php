@@ -15,7 +15,7 @@ $lat = (float) ($_GET['lat'] ?? 48.8566);
 $lon = (float) ($_GET['lon'] ?? 2.3522);
 $departement = trim((string) ($_GET['departement'] ?? ''));
 $radius = max(5, min(100, (int) ($_GET['radius'] ?? 25)));
-$minSize = (string) ($_GET['min_size'] ?? '20'); // '20', '50', '250'
+$minSize = (string) ($_GET['min_size'] ?? '20-49');
 $onlyActiveSite = ($_GET['only_active_site'] ?? '1') === '1';
 $onlyRse = ($_GET['only_rse'] ?? '0') === '1';
 $mode = (string) ($_GET['mode'] ?? 'auto'); // auto | lbb | sirene | demo
@@ -23,12 +23,19 @@ $limit = max(6, min(30, (int) ($_GET['limit'] ?? 18)));
 $smicHourly = max(10.0, min(20.0, (float) ($_GET['smic'] ?? 11.88)));
 
 $allBrackets = getOethHeadcountBrackets();
-$allowedBrackets = array_map('strval', array_keys($allBrackets));
-if ($minSize === '50') {
-    $allowedBrackets = ['21', '22', '31', '32', '41', '42', '51', '52', '53'];
-} elseif ($minSize === '250') {
-    $allowedBrackets = ['32', '41', '42', '51', '52', '53'];
-}
+$sizeBracketMap = [
+    'all' => array_map('strval', array_keys($allBrackets)),
+    '20' => array_map('strval', array_keys($allBrackets)),
+    '20-49' => ['12'],
+    '50-99' => ['21'],
+    '100-249' => ['22', '31'],
+    '250-499' => ['32'],
+    '500-999' => ['41'],
+    '1000+' => ['42', '51', '52', '53'],
+    '50' => ['21', '22', '31', '32', '41', '42', '51', '52', '53'],
+    '250' => ['32', '41', '42', '51', '52', '53'],
+];
+$allowedBrackets = $sizeBracketMap[$minSize] ?? $sizeBracketMap['20-49'];
 
 $romeCatalog = getRomeCatalog();
 $romeInfo = $romeCatalog[$rome] ?? [
@@ -539,14 +546,15 @@ $meta = [
 ];
 
 if ($mode === 'demo') {
-    $companies = buildDemoResults($rome, $romeInfo, $city, $smicHourly);
+    $allDemo = buildDemoResults($rome, $romeInfo, $city, $smicHourly);
+    $companies = array_values(array_filter($allDemo, static fn($c) => in_array((string) $c['oeth']['bracket_code'], $allowedBrackets, true)));
     $meta['engine'] = 'demo';
     $meta['pipeline'] = ['Jeu de démonstration LBB × SIRENE', 'Calculateur OETH 20+', 'Scoring Composite'];
     sendJson([
         'ok' => true,
         'meta' => array_merge($meta, [
             'elapsed_ms' => (int) round((microtime(true) - $startTime) * 1000),
-            'total_candidates' => count($companies),
+            'total_candidates' => count($allDemo),
             'total_returned' => count($companies),
         ]),
         'companies' => $companies,
@@ -613,33 +621,39 @@ $sireneRawList = [];
 $bracketsCsv = implode(',', $allowedBrackets);
 
 if ($usedLbb && !empty($lbbMatches)) {
-    // Enrich LBB SIRENs via SIRENE API in parallel using curl_multi
-    $mh = curl_multi_init();
-    $chs = [];
-    foreach (array_keys($lbbMatches) as $siren) {
-        $url = 'https://recherche-entreprises.api.gouv.fr/search?q=' . urlencode($siren) . '&per_page=1';
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6, CURLOPT_SSL_VERIFYPEER => true]);
-        $chs[$siren] = $ch;
-        curl_multi_add_handle($mh, $ch);
-    }
-    $running = null;
-    do {
-        curl_multi_exec($mh, $running);
-        if ($running > 0) {
-            curl_multi_select($mh, 0.1);
+    // Enrich LBB SIRENs via SIRENE API in gentle chunks of 6 to respect API rate limits
+    $chunks = array_chunk(array_keys($lbbMatches), 6);
+    foreach ($chunks as $idx => $sirenChunk) {
+        $mh = curl_multi_init();
+        $chs = [];
+        foreach ($sirenChunk as $siren) {
+            $url = 'https://recherche-entreprises.api.gouv.fr/search?q=' . urlencode((string) $siren) . '&per_page=1';
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 6, CURLOPT_SSL_VERIFYPEER => true]);
+            $chs[$siren] = $ch;
+            curl_multi_add_handle($mh, $ch);
         }
-    } while ($running > 0);
-    foreach ($chs as $siren => $ch) {
-        $body = curl_multi_getcontent($ch);
-        $json = json_decode((string) $body, true);
-        if (!empty($json['results'][0])) {
-            $sireneRawList[] = $json['results'][0];
+        $running = null;
+        do {
+            curl_multi_exec($mh, $running);
+            if ($running > 0) {
+                curl_multi_select($mh, 0.1);
+            }
+        } while ($running > 0);
+        foreach ($chs as $siren => $ch) {
+            $body = curl_multi_getcontent($ch);
+            $json = json_decode((string) $body, true);
+            if (!empty($json['results'][0])) {
+                $sireneRawList[] = $json['results'][0];
+            }
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
         }
-        curl_multi_remove_handle($mh, $ch);
-        curl_close($ch);
+        curl_multi_close($mh);
+        if ($idx + 1 < count($chunks)) {
+            usleep(150000);
+        }
     }
-    curl_multi_close($mh);
     $meta['pipeline'][] = 'API Recherche d\'entreprises (SIRENE 20+)';
     $meta['engine'] = 'lbb_sirene_live';
 } else {

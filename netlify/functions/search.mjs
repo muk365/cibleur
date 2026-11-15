@@ -111,16 +111,26 @@ export async function handler(event) {
   const lon = Number(q.lon || 2.3522);
   let departement = String(q.departement || '').trim();
   const radius = Math.max(5, Math.min(100, Number(q.radius || 25)));
-  const minSize = String(q.min_size || '20');
+  const minSize = String(q.min_size || '20-49');
   const onlyActiveSite = (q.only_active_site ?? '1') === '1';
   const onlyRse = (q.only_rse ?? '0') === '1';
   const mode = String(q.mode || 'auto');
   const limit = Math.max(6, Math.min(30, Number(q.limit || 18)));
   const smicHourly = Math.max(10.0, Math.min(20.0, Number(q.smic || 11.88)));
 
-  let allowedBrackets = Object.keys(OETH_BRACKETS);
-  if (minSize === '50') allowedBrackets = ['21', '22', '31', '32', '41', '42', '51', '52', '53'];
-  else if (minSize === '250') allowedBrackets = ['32', '41', '42', '51', '52', '53'];
+  const sizeBracketMap = {
+    all: Object.keys(OETH_BRACKETS),
+    '20': Object.keys(OETH_BRACKETS),
+    '20-49': ['12'],
+    '50-99': ['21'],
+    '100-249': ['22', '31'],
+    '250-499': ['32'],
+    '500-999': ['41'],
+    '1000+': ['42', '51', '52', '53'],
+    '50': ['21', '22', '31', '32', '41', '42', '51', '52', '53'],
+    '250': ['32', '41', '42', '51', '52', '53'],
+  };
+  const allowedBrackets = sizeBracketMap[minSize] || sizeBracketMap['20-49'];
 
   const romeInfo = ROME_CATALOG[rome] || {
     label: `Métier ROME ${rome}`,
@@ -150,7 +160,8 @@ export async function handler(event) {
   };
 
   if (mode === 'demo') {
-    const companies = buildDemoResults(romeInfo, city, smicHourly);
+    const allDemo = buildDemoResults(romeInfo, city, smicHourly);
+    const companies = allDemo.filter((c) => allowedBrackets.includes(String(c.oeth.bracket_code)));
     return jsonResponse({
       ok: true,
       meta: {
@@ -158,7 +169,7 @@ export async function handler(event) {
         engine: 'demo',
         pipeline: ['Jeu de démonstration LBB × SIRENE', 'Calculateur OETH 20+', 'Scoring Composite'],
         elapsed_ms: Date.now() - startTime,
-        total_candidates: companies.length,
+        total_candidates: allDemo.length,
         total_returned: companies.length,
       },
       companies,
@@ -217,17 +228,24 @@ export async function handler(event) {
 
   let sireneRawList = [];
   if (usedLbb && lbbMatches.size > 0) {
-    const results = await Promise.all(
-      [...lbbMatches.keys()].map((siren) =>
-        fetchWithTiming(`https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(siren)}&per_page=1`, {}, 6000)
-      )
-    );
-    for (const r of results) {
-      if (r.status === 200) {
-        try {
-          const j = JSON.parse(r.body);
-          if (j.results?.[0]) sireneRawList.push(j.results[0]);
-        } catch {}
+    const sirens = [...lbbMatches.keys()];
+    for (let i = 0; i < sirens.length; i += 6) {
+      const chunk = sirens.slice(i, i + 6);
+      const results = await Promise.all(
+        chunk.map((siren) =>
+          fetchWithTiming(`https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(siren)}&per_page=1`, {}, 6000)
+        )
+      );
+      for (const r of results) {
+        if (r.status === 200) {
+          try {
+            const j = JSON.parse(r.body);
+            if (j.results?.[0]) sireneRawList.push(j.results[0]);
+          } catch {}
+        }
+      }
+      if (i + 6 < sirens.length) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
       }
     }
     meta.pipeline.push("API Recherche d'entreprises (SIRENE 20+)");

@@ -953,6 +953,9 @@ function bindEvents() {
 
   document.getElementById('input-local-filter').addEventListener('input', applyLocalFiltersAndRender);
   document.getElementById('select-sort').addEventListener('change', applyLocalFiltersAndRender);
+  document.getElementById('select-min-size').addEventListener('change', runSearch);
+  document.getElementById('select-radius').addEventListener('change', runSearch);
+  document.getElementById('select-mode').addEventListener('change', runSearch);
   document.getElementById('chk-active-site').addEventListener('change', runSearch);
   document.getElementById('chk-only-rse').addEventListener('change', runSearch);
 
