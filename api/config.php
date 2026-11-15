@@ -244,41 +244,46 @@ function httpFetch(string $url, array $headers = [], string $method = 'GET', ?st
 function requestFtToken(string $clientId, string $clientSecret): array
 {
     $url = 'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire';
-    $scopesToTry = ['api_labonneboitev2', "application_{$clientId} api_labonneboitev2"];
+    $cleanId = preg_replace('/[\r\n\s]+/', '', $clientId) ?? $clientId;
+    $cleanSecret = preg_replace('/[\r\n\s]+/', '', $clientSecret) ?? $clientSecret;
+    $scopesToTry = ['api_labonneboitev2', "application_{$cleanId} api_labonneboitev2"];
     $lastRes = null;
     $lastJson = [];
 
-    foreach ($scopesToTry as $scope) {
-        $res = httpFetch(
-            $url,
-            ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'],
-            'POST',
-            http_build_query([
-                'grant_type' => 'client_credentials',
-                'client_id' => $clientId,
-                'client_secret' => $clientSecret,
-                'scope' => $scope,
-            ]),
-            8
-        );
-        $json = json_decode($res['body'], true);
-        if (!is_array($json)) {
-            $json = [];
-        }
-        $lastRes = $res;
-        $lastJson = $json;
+    foreach (['post', 'basic'] as $authMode) {
+        foreach ($scopesToTry as $scope) {
+            $params = $authMode === 'post'
+                ? ['grant_type' => 'client_credentials', 'client_id' => $cleanId, 'client_secret' => $cleanSecret, 'scope' => $scope]
+                : ['grant_type' => 'client_credentials', 'scope' => $scope];
 
-        if ($res['status'] === 200 && !empty($json['access_token'])) {
-            return [
-                'ok' => true,
-                'access_token' => $json['access_token'],
-                'scope' => $scope,
-                'status' => $res['status'],
-                'latency_ms' => $res['latency_ms'],
-                'error' => null,
-            ];
+            $headers = ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'];
+            if ($authMode === 'basic') {
+                $headers[] = 'Authorization: Basic ' . base64_encode("{$cleanId}:{$cleanSecret}");
+            }
+
+            $res = httpFetch($url, $headers, 'POST', http_build_query($params), 8);
+            $json = json_decode($res['body'], true);
+            if (!is_array($json)) {
+                $json = [];
+            }
+            $lastRes = $res;
+            $lastJson = $json;
+
+            if ($res['status'] === 200 && !empty($json['access_token'])) {
+                return [
+                    'ok' => true,
+                    'access_token' => $json['access_token'],
+                    'scope' => $scope,
+                    'status' => $res['status'],
+                    'latency_ms' => $res['latency_ms'],
+                    'error' => null,
+                ];
+            }
+            if (($json['error'] ?? '') !== 'invalid_scope') {
+                break;
+            }
         }
-        if (($json['error'] ?? '') !== 'invalid_scope') {
+        if (($lastJson['error'] ?? '') !== 'invalid_client') {
             break;
         }
     }

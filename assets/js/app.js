@@ -828,6 +828,7 @@ async function openSettingsModal(feedback = null) {
       feedback && typeof feedback.text === 'string'
         ? `<div style="padding:10px 12px;border-radius:10px;font-size:0.84rem;border:1px solid ${feedback.ok ? 'rgba(16,185,129,0.45)' : 'rgba(251,113,133,0.55)'};background:${feedback.ok ? 'rgba(16,185,129,0.12)' : 'rgba(251,113,133,0.12)'};color:${feedback.ok ? 'var(--accent-emerald)' : 'var(--accent-coral)'};">
              <strong>${escapeHtml(feedback.text)}</strong>
+             ${!feedback.ok ? '<div style="margin-top:6px;font-size:0.78rem;color:var(--text-secondary);">Vérifiez sur francetravail.io : 1) Identifiant client (commence par <code>PAR_...</code>) & Clé secrète sans espace, 2) Souscription active à l\'API <strong>La Bonne Boîte v2</strong>, 3) Contexte Production (non Sandbox).</div>' : ''}
            </div>`
         : '';
 
@@ -842,25 +843,26 @@ async function openSettingsModal(feedback = null) {
           <div>• <strong>France Travail La Bonne Boîte v2 :</strong> ${statusLine(h.france_travail_lbb?.ok, h.france_travail_lbb?.latency_ms, escapeHtml(h.france_travail_lbb?.detail || ''))}</div>
         </div>
       </div>
-      <div class="drawer-section">
+      <form class="drawer-section" id="ft-settings-form" autocomplete="off">
         <h3>Identifiants France Travail (scope <code>api_labonneboitev2</code>)</h3>
         <p style="margin:0;font-size:0.82rem;color:var(--text-secondary);">
           ${storageHint}
         </p>
-        <div class="field-group"><label>Client ID ${data.masked_client_id ? `(actuel: ${escapeHtml(data.masked_client_id)})` : ''}</label><input type="text" id="ft-client-id" value="${escapeHtml(savedLocal?.id || '')}" placeholder="PAR_..."/></div>
-        <div class="field-group"><label>Client Secret</label><input type="password" id="ft-client-secret" value="${escapeHtml(savedLocal?.secret || '')}" placeholder="••••••••••••"/></div>
+        <div class="field-group"><label for="ft-client-id">Identifiant client (Client ID) ${data.masked_client_id ? `(actuel: ${escapeHtml(data.masked_client_id)})` : ''}</label><input type="text" id="ft-client-id" autocomplete="username" value="${escapeHtml(savedLocal?.id || '')}" placeholder="PAR_..."/></div>
+        <div class="field-group"><label for="ft-client-secret">Clé secrète (Client Secret)</label><input type="password" id="ft-client-secret" autocomplete="current-password" value="${escapeHtml(savedLocal?.secret || '')}" placeholder="••••••••••••"/></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button type="button" class="btn-primary" id="btn-save-ft" style="height:40px;">Tester & Enregistrer</button>
+          <button type="submit" class="btn-primary" id="btn-save-ft" style="height:40px;">Tester & Enregistrer</button>
           ${data.has_ft_credentials ? '<button type="button" class="btn-ghost" id="btn-clear-ft">Effacer les clés</button>' : ''}
         </div>
-      </div>
+      </form>
     `;
 
-    document.getElementById('btn-save-ft').addEventListener('click', async () => {
-      const cid = document.getElementById('ft-client-id').value.trim();
-      const sec = document.getElementById('ft-client-secret').value.trim();
+    document.getElementById('ft-settings-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const cid = document.getElementById('ft-client-id').value.replace(/[\r\n\s]+/g, '');
+      const sec = document.getElementById('ft-client-secret').value.replace(/[\r\n\s]+/g, '');
       if ((!cid || !sec) && !data.has_ft_credentials) {
-        showToast('Veuillez renseigner le Client ID et le Client Secret.', true);
+        showToast('Veuillez renseigner l\'Identifiant client et la Clé secrète.', true);
         return;
       }
       if (isNetlify && cid && sec) {

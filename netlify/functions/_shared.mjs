@@ -89,37 +89,46 @@ export function parseEventJsonBody(event) {
 
 export async function requestFtToken(clientId, clientSecret) {
   const url = 'https://entreprise.francetravail.fr/connexion/oauth2/access_token?realm=/partenaire';
-  const scopesToTry = [`api_labonneboitev2`, `application_${clientId} api_labonneboitev2`];
+  const cleanId = String(clientId || '').replace(/[\r\n\s]+/g, '');
+  const cleanSecret = String(clientSecret || '').replace(/[\r\n\s]+/g, '');
+  const scopesToTry = [`api_labonneboitev2`, `application_${cleanId} api_labonneboitev2`];
   let lastRes = null;
   let lastJson = {};
 
-  for (const scope of scopesToTry) {
-    const body = new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: clientId,
-      client_secret: clientSecret,
-      scope,
-    }).toString();
+  // Try standard client_secret_post first, and Basic Auth fallback if invalid_client
+  for (const authMode of ['post', 'basic']) {
+    for (const scope of scopesToTry) {
+      const params = authMode === 'post'
+        ? { grant_type: 'client_credentials', client_id: cleanId, client_secret: cleanSecret, scope }
+        : { grant_type: 'client_credentials', scope };
 
-    const res = await fetchWithTiming(
-      url,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
-        body,
-      },
-      8000
-    );
+      const headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      };
+      if (authMode === 'basic') {
+        headers.Authorization = `Basic ${Buffer.from(`${cleanId}:${cleanSecret}`).toString('base64')}`;
+      }
 
-    let json = {};
-    try { json = JSON.parse(res.body || '{}'); } catch {}
-    lastRes = res;
-    lastJson = json;
+      const res = await fetchWithTiming(
+        url,
+        { method: 'POST', headers, body: new URLSearchParams(params).toString() },
+        8000
+      );
 
-    if (res.status === 200 && json.access_token) {
-      return { ok: true, access_token: json.access_token, scope, status: res.status, latency_ms: res.latency_ms, error: null };
+      let json = {};
+      try { json = JSON.parse(res.body || '{}'); } catch {}
+      lastRes = res;
+      lastJson = json;
+
+      if (res.status === 200 && json.access_token) {
+        return { ok: true, access_token: json.access_token, scope, auth_mode: authMode, status: res.status, latency_ms: res.latency_ms, error: null };
+      }
+      if (json.error !== 'invalid_scope') {
+        break;
+      }
     }
-    if (json.error !== 'invalid_scope') {
+    if (lastJson.error !== 'invalid_client') {
       break;
     }
   }
